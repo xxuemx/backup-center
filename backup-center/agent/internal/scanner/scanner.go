@@ -12,7 +12,7 @@ import (
 
 // UploadDispatcher 是 Uploader 需实现的接口（避免循环依赖）
 type UploadDispatcher interface {
-	ProcessBackup(logID int64, localFile, websiteName string, backupAt time.Time, storageIDs []int64)
+	ProcessBackup(logID int64, localFile, websiteName string, backupAt time.Time, storageIDs []int64) error
 }
 
 // Scanner 定期扫描每个网站的备份目录，发现新文件时上报到 Center 并转交 Uploader

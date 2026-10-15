@@ -1,0 +1,7 @@
+FROM local/backup-center-trial:1.2.2
+COPY app/Models/BackupLog.php /var/www/html/app/Models/BackupLog.php
+COPY app/Services/BackupOutcome.php /var/www/html/app/Services/BackupOutcome.php
+COPY app/Services/NotificationDispatcher.php /var/www/html/app/Services/NotificationDispatcher.php
+COPY app/Http/Controllers/Api/AgentController.php /var/www/html/app/Http/Controllers/Api/AgentController.php
+COPY database/migrations/2026_10_15_000001_add_expected_storage_ids_to_backup_logs.php /var/www/html/database/migrations/
+COPY tests/outcome-smoke.php /var/www/html/tests/outcome-smoke.php

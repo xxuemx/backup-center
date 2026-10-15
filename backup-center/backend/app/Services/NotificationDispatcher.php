@@ -15,6 +15,7 @@ class NotificationDispatcher
 {
     public function notifyBackupCompleted(BackupLog $log): void
     {
+        if ($log->status === BackupLog::STATUS_RUNNING) return;
         $s = NotificationSetting::current();
         if (! $s->hasSendkey()) return;
 

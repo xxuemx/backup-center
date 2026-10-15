@@ -30,6 +30,7 @@ class BackupLog extends Model
         'upload_status',
         'upload_target',
         'uploaded_at',
+        'expected_storage_ids',
     ];
 
     protected function casts(): array
@@ -39,6 +40,7 @@ class BackupLog extends Model
             'duration_seconds' => 'integer',
             'backup_at' => 'datetime',
             'uploaded_at' => 'datetime',
+            'expected_storage_ids' => 'array',
         ];
     }
 

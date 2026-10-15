@@ -1,6 +1,7 @@
 package uploader
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -73,15 +74,19 @@ func (u *Uploader) StorageByID(id int64) (client.Storage, bool) {
 // websiteName: 用于分子目录
 // backupAt: 备份文件的 mtime，用于生成时间戳子目录（按小时归组）
 // storageIDs: 该网站的有效存储 ID 列表
-func (u *Uploader) ProcessBackup(logID int64, localFile, websiteName string, backupAt time.Time, storageIDs []int64) {
+func (u *Uploader) ProcessBackup(logID int64, localFile, websiteName string, backupAt time.Time, storageIDs []int64) error {
 	if len(storageIDs) == 0 {
 		slog.Debug("无存储目标，跳过上传", "log_id", logID, "file", localFile)
-		return
+		return fmt.Errorf("未配置远端存储，备份未完成")
 	}
 	batchDir := batchDirFromTime(backupAt)
+	var failures []error
 	for _, sid := range storageIDs {
-		u.uploadOne(logID, sid, localFile, websiteName, batchDir)
+		if err := u.uploadOne(logID, sid, localFile, websiteName, batchDir); err != nil {
+			failures = append(failures, err)
+		}
 	}
+	return errors.Join(failures...)
 }
 
 // batchDirFromTime 把 mtime 向下取整到"日"，格式 20260809
@@ -94,7 +99,7 @@ func batchDirFromTime(t time.Time) string {
 	return local.Format("20060102")
 }
 
-func (u *Uploader) uploadOne(logID, storageID int64, localFile, websiteName, batchDir string) {
+func (u *Uploader) uploadOne(logID, storageID int64, localFile, websiteName, batchDir string) error {
 	storage, ok := u.StorageByID(storageID)
 	if !ok {
 		slog.Warn("上传目标存储不存在", "log_id", logID, "storage_id", storageID)
@@ -104,7 +109,7 @@ func (u *Uploader) uploadOne(logID, storageID int64, localFile, websiteName, bat
 			Status:       "failed",
 			ErrorMessage: "storage not found in agent config (拉配置延迟或该存储已删除)",
 		})
-		return
+		return fmt.Errorf("存储 %d 不存在", storageID)
 	}
 
 	remoteTarget, err := u.remoteTargetPath(storage, websiteName, batchDir, filepath.Base(localFile))
@@ -117,7 +122,7 @@ func (u *Uploader) uploadOne(logID, storageID int64, localFile, websiteName, bat
 			Status:       "failed",
 			ErrorMessage: err.Error(),
 		})
-		return
+		return err
 	}
 
 	// 报 uploading
@@ -171,11 +176,11 @@ func (u *Uploader) uploadOne(logID, storageID int64, localFile, websiteName, bat
 			DurationSeconds: duration,
 			ErrorMessage:    errMsg,
 		})
-		return
+		return fmt.Errorf("存储 %d 上传失败: %w", storageID, err)
 	}
 
 	slog.Info("上传成功", "storage", storage.Name, "duration", duration, "size", fileSize)
-	u.report(logID, storageID, client.UploadReportRequest{
+	return u.report(logID, storageID, client.UploadReportRequest{
 		BackupLogID:     logID,
 		StorageID:       storageID,
 		Status:          "uploaded",
@@ -185,12 +190,14 @@ func (u *Uploader) uploadOne(logID, storageID int64, localFile, websiteName, bat
 	})
 }
 
-func (u *Uploader) report(logID, storageID int64, req client.UploadReportRequest) {
+func (u *Uploader) report(logID, storageID int64, req client.UploadReportRequest) error {
 	req.BackupLogID = logID
 	req.StorageID = storageID
 	if _, err := u.client.UploadReport(&req); err != nil {
 		slog.Warn("上报上传状态失败", "log_id", logID, "storage_id", storageID, "err", err)
+		return fmt.Errorf("存储 %d 上传结果未获中心确认: %w", storageID, err)
 	}
+	return nil
 }
 
 // remoteTargetPath 生成 rclone 目标路径

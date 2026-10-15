@@ -438,6 +438,10 @@ class AgentController extends Controller
     /** 根据所有 backup_uploads 状态刷新 backup_log 的 upload_status */
     private function refreshLogUploadStatus(BackupLog $log): void
     {
+        if ($log->expected_storage_ids !== null) {
+            app(\App\Services\BackupOutcome::class)->refresh($log);
+            return;
+        }
         $uploads = $log->uploads()->get();
         if ($uploads->isEmpty()) return;
 
@@ -491,7 +495,8 @@ class AgentController extends Controller
             ], 404);
         }
 
-        $status = $data['status'] ?? BackupLog::STATUS_SUCCESS;
+        $status = ($data['status'] ?? BackupLog::STATUS_SUCCESS) === BackupLog::STATUS_FAILED
+            ? BackupLog::STATUS_FAILED : BackupLog::STATUS_RUNNING;
 
         // 幂等：先查是否已存在
         $log = BackupLog::firstOrNew([
@@ -500,6 +505,14 @@ class AgentController extends Controller
         ]);
 
         $created = ! $log->exists;
+
+        // Retransmission must not reset a completed/failed upload or its target set.
+        if (! $created) {
+            return response()->json(['ok' => true, 'log_id' => $log->id, 'created' => false]);
+        }
+        $targetIds = $website->storages()->where('status', Storage::STATUS_ENABLED)->pluck('storages.id')
+            ->merge(Storage::mandatoryEnabled()->pluck('id'))->unique()->values()->all();
+        if (empty($targetIds)) $status = BackupLog::STATUS_FAILED;
 
         $log->fill([
             'server_id'        => $server->id,
@@ -513,7 +526,9 @@ class AgentController extends Controller
             ),
             'size'             => $data['size']       ?? $log->size,
             'status'           => $status,
-            'backup_at'        => $data['backup_at'],
+            // Eloquent otherwise strips the offset before storing a UTC database value.
+            'backup_at'        => \Carbon\Carbon::parse($data['backup_at'])->utc(),
+            'expected_storage_ids' => $targetIds,
             'duration_seconds' => $data['duration_seconds'] ?? $log->duration_seconds,
         ]);
         $log->save();
@@ -529,7 +544,7 @@ class AgentController extends Controller
         }
 
         // 仅在新创建（首次上报）时触发通知，避免重复推送
-        if ($created) {
+        if ($created && $status === BackupLog::STATUS_FAILED) {
             app(NotificationDispatcher::class)->notifyBackupCompleted($log->fresh());
         }
 

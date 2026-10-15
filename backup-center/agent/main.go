@@ -26,7 +26,7 @@ import (
 	"github.com/gongpz/backup-center/agent/internal/uploader"
 )
 
-const AgentVersion = "0.14.0"
+const AgentVersion = "0.14.0-fix1"
 
 // runtimeConfigPath 记录当前进程的配置文件路径，供心跳里更新 mirror 时回写
 var runtimeConfigPath string
@@ -696,7 +696,7 @@ func performRestore(cmd *client.PendingCommand, c *client.Client, scn *scanner.S
 		"--transfers", "1",
 		"--retries", "3",
 		"--low-level-retries", "5",
-		"--stats", "5s",         // 每 5s 打一次进度
+		"--stats", "5s", // 每 5s 打一次进度
 		"--stats-one-line",      // 单行进度（便于抓取）
 		"--log-level", "NOTICE", // 压掉逐文件 INFO 日志，保留进度行与错误
 		remotePath, dest,
@@ -1035,7 +1035,7 @@ func performSelfBackup(cmd *client.PendingCommand, c *client.Client, up *uploade
 			products = append(products, "网站目录 "+humanizeBytes(webSize))
 		}
 		if err := reportAndUpload(c, up, cmd.ID, websiteID, w, arcName, arcPath, webSize, backupAt); err != nil {
-			slog.Warn("上报/上传网站目录失败", "err", err)
+			return "", fmt.Errorf("网站备份未完成: %w", err)
 		} else {
 			_ = c.CommandProgress(&client.CommandProgressRequest{CommandID: cmd.ID, Output: "网站目录已上传: " + arcName})
 		}
@@ -1086,7 +1086,7 @@ func performSelfBackup(cmd *client.PendingCommand, c *client.Client, up *uploade
 			products = append(products, "数据库 "+humanizeBytes(dbSize))
 		}
 		if err := reportAndUpload(c, up, cmd.ID, websiteID, w, filepath.Base(gzPath), gzPath, dbSize, backupAt); err != nil {
-			slog.Warn("上报/上传数据库失败", "err", err)
+			return "", fmt.Errorf("数据库备份未完成: %w", err)
 		} else {
 			_ = c.CommandProgress(&client.CommandProgressRequest{CommandID: cmd.ID, Output: "数据库已上传: " + filepath.Base(gzPath)})
 		}
@@ -1171,8 +1171,7 @@ func reportAndUpload(c *client.Client, up *uploader.Uploader, cmdID, websiteID i
 	if err != nil {
 		return fmt.Errorf("上报备份记录失败: %w", err)
 	}
-	up.ProcessBackup(resp.LogID, fullPath, w.Name, backupAt, w.StorageIDs)
-	return nil
+	return up.ProcessBackup(resp.LogID, fullPath, w.Name, backupAt, w.StorageIDs)
 }
 
 // progressTracker 从 rclone stderr 抓取"最新一行非空进度"（--stats-one-line 用 \r 覆盖刷新，
